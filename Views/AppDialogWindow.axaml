@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:VNEditor.ViewModels"
+        x:Class="VNEditor.Views.AppDialogWindow"
+        x:DataType="vm:MainWindowViewModel"
+        CanResize="False"
+        SizeToContent="WidthAndHeight"
+        MinWidth="300"
+        MaxWidth="440"
+        MaxHeight="520"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SystemDecorations="Full"
+        Opacity="1"
+        Background="{Binding ThemeWindowBackground, FallbackValue=#1E1E1E}">
+    <Border Margin="16"
+            Padding="18"
+            CornerRadius="10"
+            BorderThickness="1"
+            BorderBrush="{Binding ThemeBorderColor, FallbackValue=#3C3C3C}"
+            Background="{Binding ThemeDialogBackground, FallbackValue=#AA1F1F1F}"
+            MaxWidth="408">
+        <Grid RowDefinitions="*,Auto" RowSpacing="14">
+            <ScrollViewer MaxHeight="280"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="MessageBlock"
+                           Foreground="{Binding ThemeTextPrimary, FallbackValue=#D4D4D4}"
+                           TextWrapping="Wrap"
+                           LineHeight="22"/>
+            </ScrollViewer>
+            <StackPanel x:Name="ButtonRowOk"
+                        Grid.Row="1"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="8"
+                        IsVisible="False">
+                <Button x:Name="OkButton"
+                        Content="确定"
+                        MinWidth="88"
+                        MinHeight="32"
+                        HorizontalContentAlignment="Center"
+                        Background="{Binding ThemePanelAltBackground}"
+                        Foreground="{Binding ThemeTextPrimary}"
+                        BorderBrush="{Binding ThemeBorderColor}"
+                        IsDefault="True"/>
+            </StackPanel>
+            <StackPanel x:Name="ButtonRowYesNo"
+                        Grid.Row="1"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="8"
+                        IsVisible="False">
+                <!-- 与「确定 | 取消」一致：主操作在左、次操作在右 -->
+                <Button x:Name="YesButton"
+                        Content="是"
+                        MinWidth="88"
+                        MinHeight="32"
+                        HorizontalContentAlignment="Center"
+                        Background="{Binding ThemePanelAltBackground}"
+                        Foreground="{Binding ThemeTextPrimary}"
+                        BorderBrush="{Binding ThemeBorderColor}"
+                        IsDefault="True"/>
+                <Button x:Name="NoButton"
+                        Content="否"
+                        MinWidth="88"
+                        MinHeight="32"
+                        HorizontalContentAlignment="Center"
+                        Background="{Binding ThemePanelAltBackground}"
+                        Foreground="{Binding ThemeTextPrimary}"
+                        BorderBrush="{Binding ThemeBorderColor}"
+                        IsCancel="True"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

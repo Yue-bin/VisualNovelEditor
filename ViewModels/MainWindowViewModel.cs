@@ -118,8 +118,42 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty] private double startupSpinnerDashOffset;
     [ObservableProperty] private bool isStartupUpdateDownloading;
     [ObservableProperty] private double startupUpdateDownloadProgress;
+    [ObservableProperty] private bool gitPanelEnabled;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GitUiIdle))]
+    private bool gitBusy;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUnpushedCommits))]
+    private int gitAheadBy;
+    [ObservableProperty] private string gitStatusHint = string.Empty;
+    /// <summary>当前会话内已对远端执行过「签出」的场景名（Git 工程下需签出后才可编辑）。</summary>
+    private readonly HashSet<string> _gitCheckedOutSceneNames = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Git 工程下角色数据是否已签出（可编辑角色表）。</summary>
+    private bool _gitRolesCheckedOut;
+
+    /// <summary>已写入磁盘、待合并为单次 Git 提交的路径（与 <see cref="GitAheadBy"/> 分离直至执行提交）。</summary>
+    private readonly HashSet<string> _pendingGitCommitPaths = new(StringComparer.OrdinalIgnoreCase);
+
     public bool IsSceneDetailMode => !IsSceneGalleryMode;
     public bool HasSelectedScene => SelectedScene != null;
+    public bool HasUnpushedCommits => GitAheadBy > 0 || _pendingGitCommitPaths.Count > 0;
+    public bool GitUiIdle => !GitBusy;
+
+    /// <summary>非 Git 工程或未选场景时为 true；Git 工程下仅当当前场景已签出后为 true。</summary>
+    public bool DialogueEditingEnabled =>
+        !GitPanelEnabled || SelectedScene == null
+        || _gitCheckedOutSceneNames.Contains(SelectedScene.Name);
+
+    /// <summary>Git 工程下仅当角色数据已签出后可编辑角色。</summary>
+    public bool RoleEditingEnabled => !GitPanelEnabled || _gitRolesCheckedOut;
+
+    /// <summary>Git 工程且角色尚未签出。</summary>
+    public bool GitCheckoutRequiredBeforeRoleEdit => GitPanelEnabled && !_gitRolesCheckedOut;
+
+    /// <summary>Git 工程且当前场景尚未签出，需提示先签出。</summary>
+    public bool GitCheckoutRequiredBeforeEdit =>
+        GitPanelEnabled && SelectedScene != null && !_gitCheckedOutSceneNames.Contains(SelectedScene.Name);
 
     public MainWindowViewModel()
     {
@@ -185,6 +219,8 @@ public partial class MainWindowViewModel : ViewModelBase
         value.PropertyChanged += OnSelectedScenePropertyChanged;
         _sceneNameTracking = value;
         SelectedLine = value.Lines.Count > 0 ? value.Lines[0] : null;
+        GitCheckoutSceneFilesCommand.NotifyCanExecuteChanged();
+        RefreshDialogueEditingState();
     }
 
     partial void OnSelectedLineChanged(DialogueLine? oldValue, DialogueLine? newValue)
@@ -201,20 +237,15 @@ public partial class MainWindowViewModel : ViewModelBase
 
         SyncRoleSelectorsFromLine();
         UpdatePreview();
+        DuplicateLineCommand.NotifyCanExecuteChanged();
+        RemoveLineCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnSelectedRole1OptionChanged(RoleOption? value) => UpdateLineRolesFromSelectors();
     partial void OnSelectedRole2OptionChanged(RoleOption? value) => UpdateLineRolesFromSelectors();
     partial void OnSelectedRole1MutedChanged(bool value) => UpdateLineRolesFromSelectors();
     partial void OnSelectedRole2MutedChanged(bool value) => UpdateLineRolesFromSelectors();
-    partial void OnSelectedRoleCategoryChanged(string? value)
-    {
-        RefreshFilteredRoleEntries();
-        if (SelectedRoleEntry == null || !FilteredRoleEntries.Contains(SelectedRoleEntry))
-        {
-            SelectedRoleEntry = FilteredRoleEntries.FirstOrDefault();
-        }
-    }
+    partial void OnSelectedRoleCategoryChanged(string? value) => RefreshFilteredRoleEntries();
 
     partial void OnThemeModeChanged(string value)
     {
@@ -244,7 +275,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusText = "已新增场景。";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanRemoveScene))]
     private void RemoveScene()
     {
         if (SelectedScene == null)
@@ -372,7 +403,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SaveEditorSettings();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanAddLine))]
     private void AddLine()
     {
         if (SelectedScene == null)
@@ -402,7 +433,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusText = "已新增对话行。";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanDuplicateLine))]
     private void DuplicateLine()
     {
         if (SelectedScene == null || SelectedLine == null)
@@ -449,7 +480,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusText = "已复制对话行。";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanRemoveLine))]
     private void RemoveLine()
     {
         if (SelectedScene == null || SelectedLine == null)
@@ -478,7 +509,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var resolved = DialogueProjectService.ResolveProjectDirs(selectedPath);
         if (resolved == null)
         {
-            StatusText = "目录无效：需要包含 Data/Dialogue 与 Text/Dialogue。";
+            StatusText = "目录无效：需要存在 DataConfigs/Data/Dialogue 与 DataConfigs/Text/Dialogue（.git 与 DataConfigs 同级）。";
             return;
         }
 
@@ -495,7 +526,12 @@ public partial class MainWindowViewModel : ViewModelBase
         _projectRoot = projectRoot;
         _openedDataDialogueDir = dataDir;
         _openedTextDialogueDir = textDir;
-        var assetsRoot = Directory.GetParent(projectRoot)?.FullName ?? projectRoot;
+        var assetsRoot = Path.Combine(projectRoot, "Assets");
+        if (!Directory.Exists(assetsRoot))
+        {
+            assetsRoot = projectRoot;
+        }
+
         _resourcesRoot = Path.Combine(assetsRoot, "Resources");
         _gameResourcesRoot = Path.Combine(assetsRoot, "GameResources");
         LoadRoleEntries(projectRoot);
@@ -508,9 +544,15 @@ public partial class MainWindowViewModel : ViewModelBase
         StopScenePlay();
         SaveEditorSettings();
         StatusText = $"已打开工程：{projectRoot}，共 {Scenes.Count} 个场景。";
+        _gitCheckedOutSceneNames.Clear();
+        _gitRolesCheckedOut = false;
+        _pendingGitCommitPaths.Clear();
+        AfterProjectOpenedForGit();
+        RefreshDialogueEditingState();
+        RefreshRoleEditingState();
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanSaveScene))]
     private void SaveScene(DialogueScene? scene)
     {
         if (scene == null)
@@ -531,9 +573,45 @@ public partial class MainWindowViewModel : ViewModelBase
             BuildValidRoleIdSet());
         scene.IsDirty = false;
         StatusText = $"已保存场景：{scene.Name}";
+        TryGitCommitAfterSaveScene(scene);
     }
 
-    [RelayCommand]
+    private bool CanSaveScene(DialogueScene? scene) => DialogueEditingEnabled && scene != null;
+
+    private bool CanRemoveScene() => DialogueEditingEnabled && SelectedScene != null;
+
+    private bool CanAddLine() => DialogueEditingEnabled && SelectedScene != null;
+
+    private bool CanDuplicateLine() => DialogueEditingEnabled && SelectedScene != null && SelectedLine != null;
+
+    private bool CanRemoveLine() => DialogueEditingEnabled && SelectedScene != null && SelectedLine != null;
+
+    private void RefreshDialogueEditingState()
+    {
+        OnPropertyChanged(nameof(DialogueEditingEnabled));
+        OnPropertyChanged(nameof(GitCheckoutRequiredBeforeEdit));
+        AddLineCommand.NotifyCanExecuteChanged();
+        DuplicateLineCommand.NotifyCanExecuteChanged();
+        RemoveLineCommand.NotifyCanExecuteChanged();
+        SaveSceneCommand.NotifyCanExecuteChanged();
+        RemoveSceneCommand.NotifyCanExecuteChanged();
+    }
+
+    private void RefreshRoleEditingState()
+    {
+        OnPropertyChanged(nameof(RoleEditingEnabled));
+        OnPropertyChanged(nameof(GitCheckoutRequiredBeforeRoleEdit));
+        AddRoleCommand.NotifyCanExecuteChanged();
+        RemoveRoleCommand.NotifyCanExecuteChanged();
+        SaveRolesCommand.NotifyCanExecuteChanged();
+        AddRoleCategoryCommand.NotifyCanExecuteChanged();
+        RemoveRoleCategoryCommand.NotifyCanExecuteChanged();
+        GitCheckoutRoleFilesCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanModifyRoles() => RoleEditingEnabled;
+
+    [RelayCommand(CanExecute = nameof(CanModifyRoles))]
     private void AddRole()
     {
         var category = string.IsNullOrWhiteSpace(SelectedRoleCategory) ? "role" : SelectedRoleCategory!;
@@ -551,7 +629,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusText = "已新增角色。";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyRoles))]
     private void RemoveRole()
     {
         if (SelectedRoleEntry == null)
@@ -575,7 +653,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusText = "已删除角色。";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyRoles))]
     private void AddRoleCategory()
     {
         var category = string.IsNullOrWhiteSpace(NewRoleCategoryName) ? string.Empty : NewRoleCategoryName.Trim();
@@ -592,7 +670,7 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusText = $"已新增分类：{category}";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyRoles))]
     private void RemoveRoleCategory()
     {
         if (string.IsNullOrWhiteSpace(SelectedRoleCategory))
@@ -610,12 +688,17 @@ public partial class MainWindowViewModel : ViewModelBase
 
         RoleCategories.Remove(category);
         SelectedRoleCategory = RoleCategories.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(_projectRoot))
+        {
+            DialogueProjectService.DeleteRoleCategoryCsvFiles(_projectRoot, category);
+        }
+
         RefreshFilteredRoleEntries();
         RefreshRoleMapsAndOptions();
         StatusText = $"已删除分类：{category}";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanModifyRoles))]
     private void SaveRoles()
     {
         if (string.IsNullOrWhiteSpace(_projectRoot))
@@ -627,6 +710,7 @@ public partial class MainWindowViewModel : ViewModelBase
         DialogueProjectService.SaveRoleEntries(_projectRoot, RoleEntries);
         RefreshRoleMapsAndOptions();
         StatusText = "角色已保存。";
+        TryGitCommitAfterSaveRoles();
     }
 
     public void ExportProject(string outputRoot)
@@ -637,8 +721,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var dataDir = Path.Combine(outputRoot, "Data", "Dialogue");
-        var textDir = Path.Combine(outputRoot, "Text", "Dialogue");
+        var dataDir = DialogueProjectService.GetDialogueDataDir(outputRoot);
+        var textDir = DialogueProjectService.GetDialogueTextDir(outputRoot);
         var validRoleIds = BuildValidRoleIdSet();
         foreach (var scene in Scenes)
         {
@@ -724,8 +808,26 @@ public partial class MainWindowViewModel : ViewModelBase
         if (e.PropertyName == nameof(RoleEntry.Category) || e.PropertyName == nameof(RoleEntry.Id))
         {
             RefreshRoleCategories();
-            RefreshFilteredRoleEntries();
+            var syncedFilter = false;
+            if (ReferenceEquals(sender, SelectedRoleEntry) && SelectedRoleEntry != null)
+            {
+                var resolved = string.IsNullOrWhiteSpace(SelectedRoleEntry.Category)
+                    ? InferCategoryFromRoleId(SelectedRoleEntry.Id)
+                    : SelectedRoleEntry.Category.Trim();
+                if (!string.IsNullOrWhiteSpace(resolved)
+                    && !string.Equals(SelectedRoleCategory, resolved, StringComparison.OrdinalIgnoreCase))
+                {
+                    SelectedRoleCategory = resolved;
+                    syncedFilter = true;
+                }
+            }
+
+            if (!syncedFilter)
+            {
+                RefreshFilteredRoleEntries();
+            }
         }
+
         RefreshRoleMapsAndOptions();
     }
 
@@ -793,20 +895,44 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void RefreshFilteredRoleEntries()
     {
+        // ListBox 在 Clear 时会通过绑定把 SelectedRoleEntry 置空，必须先记下再重建列表
+        var preferred = SelectedRoleEntry;
         FilteredRoleEntries.Clear();
         var category = SelectedRoleCategory;
-        if (string.IsNullOrWhiteSpace(category))
+        IEnumerable<RoleEntry> query = RoleEntries;
+        if (!string.IsNullOrWhiteSpace(category))
+        {
+            query = query.Where(r =>
+                (string.IsNullOrWhiteSpace(r.Category) ? InferCategoryFromRoleId(r.Id) : r.Category)
+                .Equals(category, StringComparison.OrdinalIgnoreCase));
+        }
+
+        foreach (var role in query
+                     .OrderBy(r =>
+                         string.IsNullOrWhiteSpace(r.Category) ? InferCategoryFromRoleId(r.Id) : r.Category,
+                         StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(r => r.Id, StringComparer.OrdinalIgnoreCase))
+        {
+            FilteredRoleEntries.Add(role);
+        }
+
+        ReconcileSelectedRoleAfterFilter(preferred);
+    }
+
+    private void ReconcileSelectedRoleAfterFilter(RoleEntry? preferred)
+    {
+        if (preferred != null && FilteredRoleEntries.Contains(preferred))
+        {
+            SelectedRoleEntry = preferred;
+            return;
+        }
+
+        if (SelectedRoleEntry != null && FilteredRoleEntries.Contains(SelectedRoleEntry))
         {
             return;
         }
 
-        foreach (var role in RoleEntries
-                     .Where(r => (string.IsNullOrWhiteSpace(r.Category) ? InferCategoryFromRoleId(r.Id) : r.Category)
-                         .Equals(category, StringComparison.OrdinalIgnoreCase))
-                     .OrderBy(r => r.Id, StringComparer.OrdinalIgnoreCase))
-        {
-            FilteredRoleEntries.Add(role);
-        }
+        SelectedRoleEntry = FilteredRoleEntries.FirstOrDefault();
     }
 
     private void EnsureCategoryExists(string category)
@@ -842,9 +968,14 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        if (e.PropertyName == nameof(DialogueScene.Name) && !scene.IsDirty)
+        if (e.PropertyName == nameof(DialogueScene.Name))
         {
-            scene.IsDirty = true;
+            if (!scene.IsDirty)
+            {
+                scene.IsDirty = true;
+            }
+
+            RefreshDialogueEditingState();
         }
     }
 
@@ -1450,62 +1581,8 @@ public partial class MainWindowViewModel : ViewModelBase
         return key;
     }
 
-    private string ResolveResourcePath(string? rawPath)
-    {
-        if (string.IsNullOrWhiteSpace(rawPath))
-        {
-            return string.Empty;
-        }
-
-        if (Path.IsPathRooted(rawPath))
-        {
-            return rawPath;
-        }
-
-        if (File.Exists(rawPath))
-        {
-            return Path.GetFullPath(rawPath);
-        }
-
-        var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(AppContext.BaseDirectory))
-        {
-            candidates.Add(Path.Combine(AppContext.BaseDirectory, rawPath));
-        }
-        if (!string.IsNullOrWhiteSpace(Environment.CurrentDirectory))
-        {
-            candidates.Add(Path.Combine(Environment.CurrentDirectory, rawPath));
-        }
-        if (!string.IsNullOrWhiteSpace(_resourcesRoot))
-        {
-            candidates.Add(Path.Combine(_resourcesRoot, rawPath));
-        }
-        if (!string.IsNullOrWhiteSpace(_gameResourcesRoot))
-        {
-            candidates.Add(Path.Combine(_gameResourcesRoot, rawPath));
-        }
-
-        if (!string.IsNullOrWhiteSpace(_projectRoot))
-        {
-            candidates.Add(Path.Combine(_projectRoot, rawPath));
-            var parent = Directory.GetParent(_projectRoot)?.FullName;
-            if (!string.IsNullOrWhiteSpace(parent))
-            {
-                candidates.Add(Path.Combine(parent, rawPath));
-            }
-        }
-
-        foreach (var candidate in candidates)
-        {
-            var found = ExpandCandidate(candidate);
-            if (!string.IsNullOrWhiteSpace(found))
-            {
-                return found;
-            }
-        }
-
-        return string.Empty;
-    }
+    private string ResolveResourcePath(string? rawPath) =>
+        ResourcePathResolver.Resolve(rawPath, _projectRoot, _resourcesRoot, _gameResourcesRoot);
 
     private bool TryResolveJumpFromAction(DialogueScriptAction action, out int targetIndex)
     {
@@ -1566,26 +1643,6 @@ public partial class MainWindowViewModel : ViewModelBase
             4 => line.ChoiceScript4,
             _ => string.Empty
         };
-    }
-
-    private static string ExpandCandidate(string pathNoExt)
-    {
-        if (File.Exists(pathNoExt))
-        {
-            return pathNoExt;
-        }
-
-        var exts = new[] { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
-        foreach (var ext in exts)
-        {
-            var p = pathNoExt + ext;
-            if (File.Exists(p))
-            {
-                return p;
-            }
-        }
-
-        return string.Empty;
     }
 
     private static Bitmap? LoadBitmapSafe(string file)
@@ -1800,25 +1857,37 @@ public partial class MainWindowViewModel : ViewModelBase
     private void PopulateBackgroundImageOptions()
     {
         BackgroundImageOptions.Clear();
-        if (string.IsNullOrWhiteSpace(_gameResourcesRoot))
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddFromRoot(string? gameResRoot)
         {
-            return;
+            if (string.IsNullOrWhiteSpace(gameResRoot) || !Directory.Exists(gameResRoot))
+            {
+                return;
+            }
+
+            var backgroundDir = Path.Combine(gameResRoot, "Images", "Dialogue", "Background");
+            if (!Directory.Exists(backgroundDir))
+            {
+                return;
+            }
+
+            foreach (var file in Directory.EnumerateFiles(backgroundDir, "*.*", SearchOption.TopDirectoryOnly)
+                         .Where(IsSupportedBackgroundFile)
+                         .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase))
+            {
+                var relative = Path.GetRelativePath(gameResRoot, file).Replace('\\', '/');
+                if (seen.Add(relative))
+                {
+                    BackgroundImageOptions.Add(relative);
+                }
+            }
         }
 
-        var backgroundDir = Path.Combine(_gameResourcesRoot, "Images", "Dialogue", "Background");
-        if (!Directory.Exists(backgroundDir))
+        AddFromRoot(_gameResourcesRoot);
+        if (!string.IsNullOrWhiteSpace(_projectRoot))
         {
-            return;
-        }
-
-        var files = Directory.EnumerateFiles(backgroundDir, "*.*", SearchOption.TopDirectoryOnly)
-            .Where(IsSupportedBackgroundFile)
-            .OrderBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var file in files)
-        {
-            var relative = Path.GetRelativePath(_gameResourcesRoot, file).Replace('\\', '/');
-            BackgroundImageOptions.Add(relative);
+            AddFromRoot(Path.Combine(_projectRoot, "DataConfigs", "GameResources"));
         }
     }
 

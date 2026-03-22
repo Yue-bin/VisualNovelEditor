@@ -76,6 +76,78 @@ public static class CsvUtility
         return rows;
     }
 
+    public static List<string[]> ReadAllRowsFromString(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return new List<string[]>();
+        }
+
+        var rows = new List<string[]>();
+        var row = new List<string>();
+        var cell = new StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (inQuotes)
+            {
+                if (c == '"')
+                {
+                    if (i + 1 < text.Length && text[i + 1] == '"')
+                    {
+                        cell.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = false;
+                    }
+                }
+                else
+                {
+                    cell.Append(c);
+                }
+            }
+            else
+            {
+                if (c == '"')
+                {
+                    inQuotes = true;
+                }
+                else if (c == ',')
+                {
+                    row.Add(cell.ToString());
+                    cell.Clear();
+                }
+                else if (c == '\r')
+                {
+                    // ignore
+                }
+                else if (c == '\n')
+                {
+                    row.Add(cell.ToString());
+                    cell.Clear();
+                    rows.Add(row.ToArray());
+                    row = new List<string>();
+                }
+                else
+                {
+                    cell.Append(c);
+                }
+            }
+        }
+
+        if (cell.Length > 0 || row.Count > 0)
+        {
+            row.Add(cell.ToString());
+            rows.Add(row.ToArray());
+        }
+
+        return rows;
+    }
+
     public static void WriteAllRows(string path, IEnumerable<string[]> rows)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

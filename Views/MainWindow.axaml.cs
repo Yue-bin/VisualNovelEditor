@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia;
@@ -8,6 +9,7 @@ using Avalonia.Platform.Storage;
 using System.Collections.Generic;
 using System.Linq;
 using VNEditor.Models;
+using VNEditor.Services;
 using VNEditor.ViewModels;
 
 namespace VNEditor.Views;
@@ -15,11 +17,13 @@ namespace VNEditor.Views;
 public partial class MainWindow : Window
 {
     private MainWindowViewModel? _boundVm;
+    private bool _forceCloseSkipGitPrompt;
 
     public MainWindow()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+        Closing += OnMainWindowClosing;
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -27,14 +31,39 @@ public partial class MainWindow : Window
         if (_boundVm != null)
         {
             _boundVm.PropertyChanged -= OnVmPropertyChanged;
+            _boundVm.GitNotify = null;
             _boundVm = null;
         }
         if (DataContext is MainWindowViewModel vm)
         {
             _boundVm = vm;
+            vm.GitNotify = new AvaloniaGitUserNotify(this, vm);
             vm.PropertyChanged += OnVmPropertyChanged;
             try { ApplyTransparencyLevel(); } catch { /* 透明/模糊不可用时跳过，避免启动崩溃 */ }
         }
+    }
+
+    private async void OnMainWindowClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_forceCloseSkipGitPrompt)
+        {
+            return;
+        }
+
+        if (DataContext is not MainWindowViewModel vm || !vm.HasUnpushedCommits)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        var allowClose = await vm.ConfirmCloseWithOptionalPushAsync();
+        if (!allowClose)
+        {
+            return;
+        }
+
+        _forceCloseSkipGitPrompt = true;
+        Close();
     }
 
     private void OnVmPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -69,7 +98,7 @@ public partial class MainWindow : Window
 
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择包含 Data/Text 的目录",
+            Title = "选择工程目录（含 DataConfigs，或与 .git 同级）",
             AllowMultiple = false
         });
 
@@ -89,7 +118,7 @@ public partial class MainWindow : Window
 
         var folders = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "选择导出目标目录（将创建 Data/Text）",
+            Title = "选择导出目标目录（将创建 DataConfigs/Data 与 DataConfigs/Text）",
             AllowMultiple = false
         });
 
@@ -246,6 +275,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
+            return;
+        }
+
         vm.RefreshBackgroundOptionsCommand.Execute(null);
         var items = new List<BackgroundGalleryItem>();
         items.Add(new BackgroundGalleryItem
@@ -293,6 +328,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
+            return;
+        }
+
         vm.SelectedLine.BackgroundPath = string.Empty;
     }
 
@@ -300,6 +341,12 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel vm || vm.SelectedLine == null)
         {
+            return;
+        }
+
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
             return;
         }
 
@@ -318,6 +365,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
+            return;
+        }
+
         var win = new ScriptEditorWindow("编辑 EndScript", vm.SelectedLine.EndScript) { ThemeSource = vm };
         var ok = await win.ShowDialog<bool>(this);
         if (ok)
@@ -330,6 +383,12 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel vm || vm.SelectedLine == null)
         {
+            return;
+        }
+
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
             return;
         }
 
@@ -348,6 +407,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
+            return;
+        }
+
         var win = new ScriptEditorWindow("编辑 ChoiceScript2", vm.SelectedLine.ChoiceScript2) { ThemeSource = vm };
         var ok = await win.ShowDialog<bool>(this);
         if (ok)
@@ -363,6 +428,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
+            return;
+        }
+
         var win = new ScriptEditorWindow("编辑 ChoiceScript3", vm.SelectedLine.ChoiceScript3) { ThemeSource = vm };
         var ok = await win.ShowDialog<bool>(this);
         if (ok)
@@ -375,6 +446,12 @@ public partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel vm || vm.SelectedLine == null)
         {
+            return;
+        }
+
+        if (!vm.DialogueEditingEnabled)
+        {
+            vm.StatusText = "请先签出本场景后再编辑。";
             return;
         }
 

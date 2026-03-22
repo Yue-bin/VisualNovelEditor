@@ -1,0 +1,32 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:VNEditor.ViewModels"
+        x:Class="VNEditor.Views.GitHubDeviceLoginWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="GitHub 设备登录"
+        Width="400"
+        MaxWidth="420"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{Binding ThemeWindowBackground, FallbackValue=#1E1E1E}"
+        Opacity="{Binding WindowOpacity, FallbackValue=1}">
+    <StackPanel Margin="18" Spacing="12" MaxWidth="404">
+        <TextBlock TextWrapping="Wrap"
+                   Foreground="{Binding ThemeTextPrimary, FallbackValue=#D4D4D4}"
+                   Text="已在默认浏览器打开 GitHub。若未打开，请点击下方按钮。在网页中输入下方设备码完成验证。"/>
+        <TextBlock x:Name="UserCodeBlock"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   HorizontalAlignment="Center"
+                   FontFamily="Consolas, Cascadia Mono"
+                   Foreground="{Binding ThemeTextPrimary, FallbackValue=#D4D4D4}"/>
+        <Button x:Name="OpenBrowserButton" Content="在浏览器中打开 GitHub" HorizontalAlignment="Stretch"/>
+        <TextBlock x:Name="StatusText"
+                   Text="等待授权中…"
+                   Opacity="0.85"
+                   TextWrapping="Wrap"
+                   Foreground="{Binding ThemeTextMuted, FallbackValue=#8A8A8A}"/>
+    </StackPanel>
+</Window>

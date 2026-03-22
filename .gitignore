@@ -1,2 +1,5 @@
 /bin
 /obj
+
+# Avalonia skill: large upstream clone (see .cursor/skills/xaml-csharp-avalonia/SKILL.md)
+/.cursor/skills/xaml-csharp-avalonia/upstream/

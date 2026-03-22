@@ -426,68 +426,8 @@ public partial class ScenePreviewViewModel : ViewModelBase
             : string.Empty;
     }
 
-    private string ResolveResourcePath(string? rawPath)
-    {
-        if (string.IsNullOrWhiteSpace(rawPath))
-        {
-            return string.Empty;
-        }
-
-        if (Path.IsPathRooted(rawPath))
-        {
-            return rawPath;
-        }
-
-        var candidates = new List<string>();
-        if (!string.IsNullOrWhiteSpace(_resourcesRoot))
-        {
-            candidates.Add(Path.Combine(_resourcesRoot, rawPath));
-        }
-        if (!string.IsNullOrWhiteSpace(_gameResourcesRoot))
-        {
-            candidates.Add(Path.Combine(_gameResourcesRoot, rawPath));
-        }
-        if (!string.IsNullOrWhiteSpace(_projectRoot))
-        {
-            candidates.Add(Path.Combine(_projectRoot, rawPath));
-            var parent = Directory.GetParent(_projectRoot)?.FullName;
-            if (!string.IsNullOrWhiteSpace(parent))
-            {
-                candidates.Add(Path.Combine(parent, rawPath));
-            }
-        }
-
-        foreach (var candidate in candidates)
-        {
-            var found = ExpandCandidate(candidate);
-            if (!string.IsNullOrWhiteSpace(found))
-            {
-                return found;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    private static string ExpandCandidate(string pathNoExt)
-    {
-        if (File.Exists(pathNoExt))
-        {
-            return pathNoExt;
-        }
-
-        var exts = new[] { ".png", ".jpg", ".jpeg", ".webp", ".bmp" };
-        foreach (var ext in exts)
-        {
-            var p = pathNoExt + ext;
-            if (File.Exists(p))
-            {
-                return p;
-            }
-        }
-
-        return string.Empty;
-    }
+    private string ResolveResourcePath(string? rawPath) =>
+        ResourcePathResolver.Resolve(rawPath, _projectRoot, _resourcesRoot, _gameResourcesRoot);
 
     private bool TryResolveJumpFromAction(DialogueScriptAction action, out int targetIndex)
     {

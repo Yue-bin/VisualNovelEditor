@@ -12,6 +12,24 @@ public static class DialogueProjectService
 {
     private const string BgMetaPrefix = "//VNEditor:BG=";
 
+    /// <summary>对话 CSV：&lt;工程根&gt;/DataConfigs/Data/Dialogue（与 .git 同级的是工程根）。</summary>
+    public static string GetDialogueDataDir(string projectRoot) =>
+        Path.Combine(projectRoot, "DataConfigs", "Data", "Dialogue");
+
+    /// <summary>对话 CSV：&lt;工程根&gt;/DataConfigs/Text/Dialogue。</summary>
+    public static string GetDialogueTextDir(string projectRoot) =>
+        Path.Combine(projectRoot, "DataConfigs", "Text", "Dialogue");
+
+    public static string GetRoleDataDataDir(string projectRoot) =>
+        Path.Combine(projectRoot, "DataConfigs", "Data", "RoleData");
+
+    public static string GetRoleDataTextDir(string projectRoot) =>
+        Path.Combine(projectRoot, "DataConfigs", "Text", "RoleData");
+
+    /// <summary>
+    /// 解析工程：在选中路径下定位 <c>DataConfigs/Data/Dialogue</c> 与 <c>DataConfigs/Text/Dialogue</c>，
+    /// 返回的 <c>projectRoot</c> 为包含 <c>DataConfigs</c> 的目录（与仓库 .git 同级）。
+    /// </summary>
     public static (string dataDir, string textDir, string projectRoot)? ResolveProjectDirs(string selectedPath)
     {
         if (string.IsNullOrWhiteSpace(selectedPath) || !Directory.Exists(selectedPath))
@@ -19,40 +37,69 @@ public static class DialogueProjectService
             return null;
         }
 
-        var directData = Path.Combine(selectedPath, "Data", "Dialogue");
-        var directText = Path.Combine(selectedPath, "Text", "Dialogue");
-        if (Directory.Exists(directData) && Directory.Exists(directText))
+        var full = Path.GetFullPath(selectedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+
+        // 1) 选中文件夹即为 DataConfigs
+        if (Path.GetFileName(full).Equals("DataConfigs", StringComparison.OrdinalIgnoreCase))
         {
-            return (directData, directText, selectedPath);
+            var projectRoot = Directory.GetParent(full)?.FullName;
+            if (string.IsNullOrEmpty(projectRoot))
+            {
+                return null;
+            }
+
+            var dataDir = Path.Combine(full, "Data", "Dialogue");
+            var textDir = Path.Combine(full, "Text", "Dialogue");
+            if (Directory.Exists(dataDir) && Directory.Exists(textDir))
+            {
+                return (dataDir, textDir, projectRoot);
+            }
+
+            return null;
         }
 
-        if (Path.GetFileName(selectedPath).Equals("Dialogue", StringComparison.OrdinalIgnoreCase))
+        // 2) 工程根：直接包含 DataConfigs 子目录
+        var childDataConfigs = Path.Combine(full, "DataConfigs");
+        if (Directory.Exists(childDataConfigs))
         {
-            var parent = Directory.GetParent(selectedPath);
-            if (parent != null && parent.Name.Equals("Data", StringComparison.OrdinalIgnoreCase))
+            var dataDir = Path.Combine(childDataConfigs, "Data", "Dialogue");
+            var textDir = Path.Combine(childDataConfigs, "Text", "Dialogue");
+            if (Directory.Exists(dataDir) && Directory.Exists(textDir))
             {
-                var root = parent.Parent?.FullName;
-                if (!string.IsNullOrEmpty(root))
+                return (dataDir, textDir, full);
+            }
+
+            return null;
+        }
+
+        // 3) 向上查找：某级目录下存在 DataConfigs，或当前位于 DataConfigs 子树内
+        for (var dir = new DirectoryInfo(full); dir != null; dir = dir.Parent)
+        {
+            var tryDc = Path.Combine(dir.FullName, "DataConfigs");
+            if (Directory.Exists(tryDc))
+            {
+                var dataDir = Path.Combine(tryDc, "Data", "Dialogue");
+                var textDir = Path.Combine(tryDc, "Text", "Dialogue");
+                if (Directory.Exists(dataDir) && Directory.Exists(textDir))
                 {
-                    var textDir = Path.Combine(root, "Text", "Dialogue");
-                    if (Directory.Exists(textDir))
-                    {
-                        return (selectedPath, textDir, root);
-                    }
+                    return (dataDir, textDir, dir.FullName);
                 }
             }
 
-            if (parent != null && parent.Name.Equals("Text", StringComparison.OrdinalIgnoreCase))
+            if (dir.Name.Equals("DataConfigs", StringComparison.OrdinalIgnoreCase))
             {
-                var root = parent.Parent?.FullName;
-                if (!string.IsNullOrEmpty(root))
+                var dataDir = Path.Combine(dir.FullName, "Data", "Dialogue");
+                var textDir = Path.Combine(dir.FullName, "Text", "Dialogue");
+                if (Directory.Exists(dataDir) && Directory.Exists(textDir))
                 {
-                    var dataDir = Path.Combine(root, "Data", "Dialogue");
-                    if (Directory.Exists(dataDir))
+                    var projectRoot = dir.Parent?.FullName;
+                    if (!string.IsNullOrEmpty(projectRoot))
                     {
-                        return (dataDir, selectedPath, root);
+                        return (dataDir, textDir, projectRoot);
                     }
                 }
+
+                return null;
             }
         }
 
@@ -79,8 +126,8 @@ public static class DialogueProjectService
 
     public static void ExportScenes(IEnumerable<DialogueScene> scenes, string outputRoot)
     {
-        var dataDir = Path.Combine(outputRoot, "Data", "Dialogue");
-        var textDir = Path.Combine(outputRoot, "Text", "Dialogue");
+        var dataDir = GetDialogueDataDir(outputRoot);
+        var textDir = GetDialogueTextDir(outputRoot);
         Directory.CreateDirectory(dataDir);
         Directory.CreateDirectory(textDir);
 
@@ -147,7 +194,7 @@ public static class DialogueProjectService
 
     public static Dictionary<string, string> LoadRoleCharacterMap(string projectRoot)
     {
-        var roleDir = Path.Combine(projectRoot, "Data", "RoleData");
+        var roleDir = GetRoleDataDataDir(projectRoot);
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!Directory.Exists(roleDir))
         {
@@ -190,7 +237,7 @@ public static class DialogueProjectService
 
     public static Dictionary<string, string> LoadRoleNameMap(string projectRoot)
     {
-        var roleDir = Path.Combine(projectRoot, "Text", "RoleData");
+        var roleDir = GetRoleDataTextDir(projectRoot);
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (!Directory.Exists(roleDir))
         {
@@ -233,8 +280,8 @@ public static class DialogueProjectService
 
     public static List<RoleEntry> LoadRoleEntries(string projectRoot)
     {
-        var dataDir = Path.Combine(projectRoot, "Data", "RoleData");
-        var textDir = Path.Combine(projectRoot, "Text", "RoleData");
+        var dataDir = GetRoleDataDataDir(projectRoot);
+        var textDir = GetRoleDataTextDir(projectRoot);
         var dataFiles = BuildCsvMap(dataDir);
         var textFiles = BuildCsvMap(textDir);
         var categories = dataFiles.Keys.Union(textFiles.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList();
@@ -316,24 +363,46 @@ public static class DialogueProjectService
         return result;
     }
 
+    /// <summary>
+    /// 保存角色表。会合并磁盘已有数据：内存中<strong>至少有一个角色</strong>的分类以内存为准（含删改）；
+    /// 内存中<strong>完全没有</strong>某分类时，保留该分类在磁盘上的 CSV（避免加载不完整时一次保存清空其它分类）。
+    /// 删除整分类请用 <see cref="DeleteRoleCategoryCsvFiles"/>。
+    /// </summary>
     public static void SaveRoleEntries(string projectRoot, IEnumerable<RoleEntry> roles)
     {
-        var dataDir = Path.Combine(projectRoot, "Data", "RoleData");
-        var textDir = Path.Combine(projectRoot, "Text", "RoleData");
+        var dataDir = GetRoleDataDataDir(projectRoot);
+        var textDir = GetRoleDataTextDir(projectRoot);
         Directory.CreateDirectory(dataDir);
         Directory.CreateDirectory(textDir);
 
-        foreach (var file in Directory.GetFiles(dataDir, "*.csv"))
+        var mem = roles.Where(r => !string.IsNullOrWhiteSpace(r.Id)).ToList();
+        List<RoleEntry> disk;
+        try
         {
-            File.Delete(file);
+            disk = LoadRoleEntries(projectRoot);
         }
-        foreach (var file in Directory.GetFiles(textDir, "*.csv"))
+        catch
         {
-            File.Delete(file);
+            disk = new List<RoleEntry>();
         }
 
-        var grouped = roles
-            .Where(r => !string.IsNullOrWhiteSpace(r.Id))
+        var memCats = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var r in mem)
+        {
+            memCats.Add(NormalizeCategoryName(string.IsNullOrWhiteSpace(r.Category) ? InferCategoryFromId(r.Id) : r.Category));
+        }
+
+        var merged = new List<RoleEntry>(mem);
+        foreach (var r in disk)
+        {
+            var c = NormalizeCategoryName(string.IsNullOrWhiteSpace(r.Category) ? InferCategoryFromId(r.Id) : r.Category);
+            if (!memCats.Contains(c))
+            {
+                merged.Add(r);
+            }
+        }
+
+        var grouped = merged
             .GroupBy(r => string.IsNullOrWhiteSpace(r.Category) ? InferCategoryFromId(r.Id) : r.Category, StringComparer.OrdinalIgnoreCase)
             .OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase);
 
@@ -367,6 +436,32 @@ public static class DialogueProjectService
         }
     }
 
+    /// <summary>删除某分类在 Data/Text RoleData 下对应的两个 CSV（「删除分类」按钮）。</summary>
+    public static void DeleteRoleCategoryCsvFiles(string projectRoot, string category)
+    {
+        var c = NormalizeCategoryName(category);
+        var dataDir = GetRoleDataDataDir(projectRoot);
+        var textDir = GetRoleDataTextDir(projectRoot);
+        var dataPath = Path.Combine(dataDir, $"{c}.csv");
+        var textPath = Path.Combine(textDir, $"{c}.csv");
+        try
+        {
+            if (File.Exists(dataPath))
+            {
+                File.Delete(dataPath);
+            }
+
+            if (File.Exists(textPath))
+            {
+                File.Delete(textPath);
+            }
+        }
+        catch
+        {
+            // 忽略删除失败，避免阻断 UI
+        }
+    }
+
     private static string InferCategoryFromId(string roleId)
     {
         if (string.IsNullOrWhiteSpace(roleId))
@@ -392,6 +487,18 @@ public static class DialogueProjectService
         }
 
         return string.IsNullOrWhiteSpace(trimmed) ? "role" : trimmed;
+    }
+
+    /// <summary>供 Git 冲突行匹配：将 CSV 首列 Id 规范为与 <see cref="DialogueLine.IdPart"/> 一致。</summary>
+    public static string NormalizeLineIdPartForGit(string sceneName, string originalIdFromCsv)
+    {
+        return NormalizeRawId(sceneName, originalIdFromCsv);
+    }
+
+    /// <summary>从磁盘重新加载单个场景（与启动时 LoadScenes 规则一致）。</summary>
+    public static DialogueScene LoadSceneFromDisk(string sceneName, string? dataPath, string? textPath)
+    {
+        return LoadScene(sceneName, dataPath, textPath);
     }
 
     private static DialogueScene LoadScene(string sceneName, string? dataPath, string? textPath)

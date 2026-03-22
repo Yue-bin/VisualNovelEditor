@@ -42,6 +42,8 @@
                     <Menu Grid.Column="1" Background="Transparent">
                         <MenuItem Header="文件">
                             <MenuItem Header="打开工程" Click="OnOpenProjectClicked"/>
+                            <Separator/>
+                            <MenuItem Header="GitHub 登录" Command="{Binding GitHubBrowserLoginCommand}"/>
                         </MenuItem>
                     </Menu>
                     <Button Grid.Column="3" Content="设置" Click="OnOpenSettingsClicked"/>
@@ -166,7 +168,7 @@
                                 Background="{Binding ThemePanelAltBackground}"
                                 CornerRadius="10"
                                 Padding="8">
-                            <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="8">
+                            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="8">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Button Content="上一页" Command="{Binding BackToSceneGalleryCommand}"/>
                                     <Button Content="保存场景"
@@ -176,18 +178,35 @@
                                     <Button Content="播放当前场景" Click="OnPlaySceneClicked" IsVisible="{Binding HasSelectedScene}"/>
                                 </StackPanel>
 
-                                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                                <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="6" IsVisible="{Binding GitPanelEnabled}">
+                                    <Button Content="签出本场景（从远端拉取后可编辑）"
+                                            Command="{Binding GitCheckoutSceneFilesCommand}"
+                                            IsEnabled="{Binding GitUiIdle}"
+                                            MinHeight="36"
+                                            HorizontalAlignment="Stretch"
+                                            HorizontalContentAlignment="Center"
+                                            ToolTip.Tip="从远端跟踪分支拉取当前场景的 Data/Text CSV 并覆盖本地"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="拉取全部" Command="{Binding GitPullAllCommand}" IsEnabled="{Binding GitUiIdle}" ToolTip.Tip="fetch 合并远端（冲突按远端）；并执行 git lfs pull"/>
+                                        <Button Content="上传" Command="{Binding GitPushCommand}" IsEnabled="{Binding GitUiIdle}" ToolTip.Tip="推送本地提交到远端"/>
+                                        <TextBlock Text="{Binding GitStatusHint}" VerticalAlignment="Center" Foreground="{Binding ThemeTextMuted}" TextWrapping="Wrap" MaxWidth="300"/>
+                                    </StackPanel>
+                                    <TextBlock Text="请先点击上方「签出本场景」后再编辑。" Foreground="#FFB8860B" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding GitCheckoutRequiredBeforeEdit}"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="对话行" FontWeight="Bold" VerticalAlignment="Center"/>
                                     <Button Content="新增" Command="{Binding AddLineCommand}"/>
                                     <Button Content="复制" Command="{Binding DuplicateLineCommand}"/>
                                     <Button Content="删除" Command="{Binding RemoveLineCommand}"/>
                                 </StackPanel>
 
-                                <TextBox Grid.Row="2"
+                                <TextBox Grid.Row="3"
                                          Watermark="场景名"
+                                         IsEnabled="{Binding DialogueEditingEnabled}"
                                          Text="{Binding SelectedScene.Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
-                                <ListBox Grid.Row="3"
+                                <ListBox Grid.Row="4"
                                          Background="{Binding ThemeListBackground}"
                                          BorderBrush="{Binding ThemeBorderColor}"
                                          BorderThickness="1"
@@ -196,6 +215,7 @@
                                     <ListBox.ItemTemplate>
                                         <DataTemplate x:DataType="model:DialogueLine">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="⚠" Foreground="#FFB8860B" VerticalAlignment="Center" IsVisible="{Binding HasGitSyncWarning}" ToolTip.Tip="此行在合并冲突时已采用远端版本，请核对"/>
                                                 <TextBlock Text="{Binding CsvId}" Width="60"/>
                                                 <TextBlock Text="{Binding Roles}" Width="130" TextTrimming="CharacterEllipsis"/>
                                                 <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis"/>
@@ -265,7 +285,8 @@
                                 </Border>
                             </Viewbox>
 
-                            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0">
+                            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" Padding="0,0,14,0"
+                                          IsEnabled="{Binding DialogueEditingEnabled}">
                                 <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                                       ColumnDefinitions="120,*"
                                       RowSpacing="6"
@@ -453,8 +474,18 @@
                             Background="{Binding ThemePanelAltBackground}"
                             CornerRadius="10"
                             Padding="8">
-                        <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                            <WrapPanel Grid.Row="0" Orientation="Horizontal">
+                        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                            <StackPanel Grid.Row="0" Orientation="Vertical" Spacing="6" IsVisible="{Binding GitPanelEnabled}">
+                                <Button Content="签出角色数据（从远端拉取后可编辑）"
+                                        Command="{Binding GitCheckoutRoleFilesCommand}"
+                                        IsEnabled="{Binding GitUiIdle}"
+                                        MinHeight="36"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Center"
+                                        ToolTip.Tip="从远端跟踪分支拉取角色相关 CSV 并覆盖本地；随后 git lfs pull"/>
+                                <TextBlock Text="请先点击上方「签出角色数据」后再编辑。" Foreground="#FFB8860B" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding GitCheckoutRequiredBeforeRoleEdit}"/>
+                            </StackPanel>
+                            <WrapPanel Grid.Row="1" Orientation="Horizontal" IsEnabled="{Binding RoleEditingEnabled}">
                                 <TextBlock Text="分类" VerticalAlignment="Center" Margin="0,6,6,0"/>
                                 <ComboBox Width="120"
                                           Margin="0,0,6,0"
@@ -470,10 +501,11 @@
                                 <Button Margin="0,0,6,0" Content="删除角色" Command="{Binding RemoveRoleCommand}"/>
                                 <Button Content="保存角色" Command="{Binding SaveRolesCommand}"/>
                             </WrapPanel>
-                            <ListBox Grid.Row="1"
+                            <ListBox Grid.Row="2"
                                      Background="{Binding ThemeListAltBackground}"
                                      BorderBrush="{Binding ThemeBorderColor}"
                                      BorderThickness="1"
+                                     IsEnabled="{Binding RoleEditingEnabled}"
                                      ItemsSource="{Binding FilteredRoleEntries}"
                                      SelectedItem="{Binding SelectedRoleEntry}">
                                 <ListBox.ItemTemplate>
@@ -490,7 +522,8 @@
                             BorderBrush="{Binding ThemeBorderColor}"
                             Background="{Binding ThemeEditorPanelBackground}"
                             CornerRadius="10"
-                            Padding="8">
+                            Padding="8"
+                            IsEnabled="{Binding RoleEditingEnabled}">
                         <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="8">
                             <TextBlock Text="分类" Grid.Row="0" Grid.Column="0"/>
                             <ComboBox Grid.Row="0" Grid.Column="1"

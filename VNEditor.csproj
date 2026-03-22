@@ -23,6 +23,17 @@
     <PackageReference Include="AvaloniaEdit.TextMate" Version="11.4.1" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.1" />
     <PackageReference Include="LuaCSharp" Version="0.5.3" />
+    <PackageReference Include="LibGit2Sharp" Version="0.31.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 将官方 zip 中的 git-lfs.exe 放在项目根目录即可随构建复制到输出/发布目录 -->
+    <Content Include="git-lfs.exe" Condition="Exists('$(MSBuildProjectDirectory)\git-lfs.exe')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <!-- 单文件发布时打进主 exe，启动解压后 AppContext.BaseDirectory 可找到 git-lfs.exe -->
+      <ExcludeFromSingleFile>false</ExcludeFromSingleFile>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

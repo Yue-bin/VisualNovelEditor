@@ -5,7 +5,6 @@
         x:Name="Root"
         x:DataType="vm:MainWindowViewModel"
         Width="820"
-        Height="320"
         CanResize="True"
         SystemDecorations="Full"
         ExtendClientAreaToDecorationsHint="True"
@@ -13,7 +12,8 @@
         Title="设置 - 魔女：终末旅途 剧情编辑器"
         RequestedThemeVariant="{Binding RequestedThemeVariantText}"
         Background="{Binding ThemeWindowBackground}"
-        Opacity="{Binding WindowOpacity}">
+        Opacity="{Binding WindowOpacity}"
+        Height="320">
     <Grid RowDefinitions="Auto,*">
         <Border Grid.Row="0"
                 Background="{Binding ThemeTopBarBackground}"
